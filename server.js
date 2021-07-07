@@ -1,6 +1,21 @@
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config()
+}
+
 const express = require('express')
 const app = express()
 const bcrypt = require('bcrypt')
+const passport = require('passport')
+const flash = require('express-flash')
+const session = require('express-session')
+const initializePassport = require('./passport-config')
+const methodOverride = require('method-override')
+
+initializePassport(
+    passport, 
+    email => users.find(user => user.email === email),
+    id => users.find(user => user.id === id)
+)
 
 // Re-implement this using postgreSQL later
 const users = []
@@ -10,25 +25,37 @@ app.set('view-engine', 'ejs')
 // Allow us to access variables sent from the forms
 app.use(express.urlencoded({ extended: false }))
 
-app.get('/', (req, res) => {
-    res.render('index.ejs', { name: 'kamatoro' })
+app.use(flash())
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false
+}))
+
+app.use(passport.initialize())
+app.use(passport.session())
+app.use(methodOverride('_method'))
+
+app.get('/', checkAuthenticated, (req, res) => {
+    res.render('index.ejs', { name: req.user.name })
 })
 
-app.get('/login', (req, res) => {
+app.get('/login', checkNotAuthenticated, (req, res) => {
     res.render('login.ejs')
 })
 
-app.post('/login', (req, res) => {
+app.post('/login', checkNotAuthenticated, passport.authenticate('local', {
+    successRedirect: '/',
+    failureRedirect: '/login',
+    failureFlash: true
+}))
 
-})
-
-app.get('/register', (req, res) => {
+app.get('/register', checkNotAuthenticated, (req, res) => {
     res.render('register.ejs')
 })
 
-app.post('/register', async (req, res) => {
+app.post('/register', checkNotAuthenticated, async (req, res) => {
     try{
-        console.log(req.body)
         const hashedPassword = await bcrypt.hash(req.body.password, 10)
         users.push(
             {
@@ -45,4 +72,29 @@ app.post('/register', async (req, res) => {
     }
     console.log(users)
 })
+
+// logOut is provided my passport, but since forms do not support DELETE, we need the method-override package
+app.delete('/logout', (req, res) => {
+    req.logOut()
+    res.redirect('/login')
+})
+
+function checkAuthenticated(req, res, next) {
+    if(req.isAuthenticated()){
+        return next()
+    } 
+    
+    res.redirect('/login')
+    
+}
+
+function checkNotAuthenticated(req, res, next) {
+    if(req.isAuthenticated()){
+        return res.redirect('/')
+    }
+
+    next()
+
+    
+}
 app.listen(3000)
